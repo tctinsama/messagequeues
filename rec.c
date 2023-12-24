@@ -1,62 +1,71 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
-#include <ncurses.h>
 
-#define MAX_TEXT 512 // Kích thước tối đa của tin nhắn
+#define MAX_MSG_SIZE 1024
+#define MSG_KEY 1234
 
-struct my_msg {
-    long int msg_type;
-    char file_data[MAX_TEXT];
+struct message {
+    long msg_type;
+    char msg_text[MAX_MSG_SIZE];
 };
 
-int main() {
-    int running = 1;
-    int msgid;
-    struct my_msg some_data;
-    char filename[MAX_TEXT];
-
-    initscr(); // Khởi tạo ncurses
-    printw("Enter the filename to save the received file: ");
-    refresh();
-    getstr(filename); // Nhập tên file
-
-    FILE *file = fopen(filename, "w");
+void receive_file(int msgid, const char *file_path) {
+    struct message msg;
+    FILE *file = fopen(file_path, "w");
     if (file == NULL) {
-        printw("Error in opening file\n");
+        perror("File opening failed");
         exit(EXIT_FAILURE);
     }
 
-    msgid = msgget((key_t)14534, 0666 | IPC_CREAT); // Tạo hoặc kết nối hàng đợi tin nhắn
-    if (msgid == -1) {
-        printw("Error in creating queue\n");
-        exit(EXIT_FAILURE);
-    }
+    size_t bytes_received;
 
-    while (running) {
-        if (msgrcv(msgid, (void *)&some_data, MAX_TEXT, 1, 0) == -1) {
-            printw("Error in receiving message\n");
+    // Nhận dữ liệu từ message queue và ghi vào file
+    while (1) {
+        if (msgrcv(msgid, &msg, sizeof(msg.msg_text), 1, 0) == -1) {
+            perror("msgrcv");
             exit(EXIT_FAILURE);
         }
 
-        fprintf(file, "%s", some_data.file_data);
-
-        if (strncmp(some_data.file_data, "end", 3) == 0) {
-            running = 0;
+        if (strcmp(msg.msg_text, "EOF") == 0) {
+            break; // Kết thúc việc nhận file khi nhận được tin nhắn "EOF"
         }
+
+        bytes_received = strlen(msg.msg_text);
+        fwrite(msg.msg_text, sizeof(char), bytes_received, file);
     }
 
     fclose(file);
+}
 
-    if (msgctl(msgid, IPC_RMID, 0) == -1) {
-        printw("Error in removing queue\n");
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        printf("Usage: %s <file_path>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
-    endwin(); // Kết thúc ncurses
-    exit(EXIT_SUCCESS);
+    int msgid;
+    key_t key;
+
+    // Tạo key cho message queue
+    key = ftok("msg_queue_key", MSG_KEY);
+    if (key == -1) {
+        perror("ftok");
+        exit(EXIT_FAILURE);
+    }
+
+    // Tạo hoặc kết nối vào message queue
+    msgid = msgget(key, 0666 | IPC_CREAT);
+    if (msgid == -1) {
+        perror("msgget");
+        exit(EXIT_FAILURE);
+    }
+
+    // Nhận file được chỉ định trong tham số dòng lệnh
+    receive_file(msgid, argv[1]);
+
+    return 0;
 }
