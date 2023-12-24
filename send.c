@@ -4,9 +4,12 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #define MAX_MSG_SIZE 1024
-#define MSG_KEY 1234
+#define MSG_KEY_FILE "msg_queue_key_file"
+#define MSG_KEY_ID 1234
 
 struct message {
     long msg_type;
@@ -51,8 +54,16 @@ int main(int argc, char *argv[]) {
     int msgid;
     key_t key;
 
-    // Tạo key cho message queue
-    key = ftok("msg_queue_key", MSG_KEY);
+    // Tạo hoặc mở file tạm cho key
+    int key_file = open(MSG_KEY_FILE, O_CREAT | O_RDWR, 0666);
+    if (key_file == -1) {
+        perror("open");
+        exit(EXIT_FAILURE);
+    }
+    close(key_file);
+
+    // Tạo key từ file tạm
+    key = ftok(MSG_KEY_FILE, MSG_KEY_ID);
     if (key == -1) {
         perror("ftok");
         exit(EXIT_FAILURE);
@@ -67,6 +78,12 @@ int main(int argc, char *argv[]) {
 
     // Gửi file được chỉ định trong tham số dòng lệnh
     send_file(msgid, argv[1]);
+
+    // Xóa file tạm
+    if (remove(MSG_KEY_FILE) != 0) {
+        perror("remove");
+        exit(EXIT_FAILURE);
+    }
 
     return 0;
 }
